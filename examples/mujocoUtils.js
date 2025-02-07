@@ -24,9 +24,31 @@ export function setupGUI(parentContext) {
     parentContext.controls.target.set(0, 1.2, 0);
     parentContext.controls.update(); });
 
+  // Initialize RL parameters.
+  parentContext.params.rlControl = false;       // RL control disabled by default.
+  parentContext.params.policy = "baseline";       // Default RL policy.
+  parentContext.params.rlUpdateInterval = 100;    // Default update interval (ms).
+
+  // Define RL configuration for each scene.
+  const sceneRLConfig = {
+    "myo_sim/hand/myo_hand_combined.xml": {
+      rlSupported: false
+    },
+    "myo_sim/arm/myoarm_bionic_bimanual.mjb": {
+      rlSupported: true,
+      policies: {
+        "baseline": "policy_a",
+        "Muscle Heads": "policy_b",
+        "LNSworkers": "policy_c",
+        "neuroflex": "policy_d"
+      }
+    }
+  };
+
+  let sceneFolder = parentContext.gui.addFolder("Scene");
+
   // Add scene selection dropdown.
-  let reload = reloadFunc.bind(parentContext);
-  parentContext.gui.add(parentContext.params, 'scene', {
+  let sceneController = sceneFolder.add(parentContext.params, 'scene', {
     "MyoHand": "myo_sim/hand/myo_hand_combined.xml",
     "Bimanual": "myo_sim/arm/myoarm_bionic_bimanual.mjb",
     // "MyoLeg (suspended)":"myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
@@ -35,7 +57,83 @@ export function setupGUI(parentContext) {
     // "MyoElbow Exo": "myo_sim/elbow/myo_elbow_exo_combined.xml",
     // "motor_finger_v0": "myo_sim/finger/motor_finger_v0.xml",
     // "myo_finger_v0": "myo_sim/finger/myo_finger_v0.xml",
-  }).name('Example Scene').onChange(reload);
+  }).name('Example Scene').onChange((value) => {
+    // Reload the simulation for the new scene.
+    let reload = reloadFunc.bind(parentContext);
+    reload();
+    // Update RL Control options based on the selected scene.
+    updateRLControlOptions(value);
+    // Force update of the dropdown display.
+    sceneController.updateDisplay();
+  });
+
+  parentContext.rlFolder = null;
+
+  function updateRLControlOptions(sceneValue) {
+    const config = sceneRLConfig[sceneValue];
+    if (config && config.rlSupported) {
+      // If the selected scene supports RL Control.
+      if (!parentContext.rlFolder) {
+        // Create the RL Control folder if it does not exist.
+        parentContext.rlFolder = sceneFolder.addFolder("RL Control");
+
+        // Add a toggle to enable/disable RL Control.
+        parentContext.rlFolder.add(parentContext.params, 'rlControl')
+          .name('Enable RL Control')
+          .onChange((value) => {
+            console.log("RL Control:", value ? "Enabled" : "Disabled");
+            // Insert code here to start/stop RL control.
+          });
+
+        // Set the initial policy value to the first policy from the configuration.
+        parentContext.params.policy = Object.values(config.policies)[0];
+        // Add the policy selection dropdown.
+        parentContext.rlFolder.add(parentContext.params, 'policy', config.policies)
+          .name('Policy')
+          .onChange((value) => {
+            console.log("Selected Policy:", value);
+            // Insert code here to handle the policy change.
+          });
+
+        // Add a slider for the RL update interval (in milliseconds).
+        parentContext.rlFolder.add(parentContext.params, 'rlUpdateInterval', 10, 1000, 10)
+          .name('Update Interval (ms)')
+          .onChange((value) => {
+            console.log("RL Update Interval:", value);
+            // Insert code here to update RL inference frequency.
+          });
+        parentContext.rlFolder.open();
+      } else {
+        // If the RL Control folder already exists, update the policy dropdown options.
+        let policyController = parentContext.rlFolder.__controllers.find(c => c.property === 'policy');
+        if (policyController) {
+          parentContext.rlFolder.remove(policyController);
+          parentContext.rlFolder.add(parentContext.params, 'policy', config.policies)
+            .name('Policy')
+            .onChange((value) => {
+              console.log("Selected Policy:", value);
+            });
+        }
+      }
+    } else {
+      // If the selected scene does not support RL Control.
+      if (parentContext.rlFolder) {
+        // Remove the RL Control folder from the DOM.
+        if (parentContext.rlFolder.domElement &&
+          parentContext.rlFolder.domElement.parentNode) {
+          parentContext.rlFolder.domElement.parentNode.removeChild(parentContext.rlFolder.domElement);
+        }
+        // Also remove it from the sceneFolder's internal folders if present.
+        if (sceneFolder.__folders && sceneFolder.__folders["RL Control"]) {
+          delete sceneFolder.__folders["RL Control"];
+        }
+        parentContext.rlFolder = null;
+      }
+    }
+  }
+
+  // Update RL Control options based on the initial scene.
+  updateRLControlOptions(parentContext.params.scene);
 
   // Add a help menu.
   // Parameters:
@@ -247,13 +345,45 @@ export function setupGUI(parentContext) {
   });
   actuatorFolder.close();
 
+  // Add RL Control Options
+  // // initial RL control parameters
+  // parentContext.params.rlControl = false;            // Whether RL control is enabled
+  // parentContext.params.policy = "baseline";           // Selected RL policy (e.g., "policy_a", "policy_b", etc.)
+  // parentContext.params.rlUpdateInterval = 100;         // Update interval in milliseconds
+
+  // let rlFolder = parentContext.gui.addFolder("RL Control");
+
+  // // Toggle RL control on/off.
+  // rlFolder.add(parentContext.params, 'rlControl').name('Enable RL Control')
+  //   .onChange((value) => {
+  //     console.log("RL Control:", value ? "Enabled" : "Disabled");
+  //     // Add code here
+  //   });
+
+  // // Add policy selection dropdown.
+  // rlFolder.add(parentContext.params, 'policy', {
+  //   "baseline": "policy_a",
+  //   "Muscle Heads": "policy_b",
+  //   "LNSworkers": "policy_c",
+  //   "neuroflex": "policy_d"
+  // }).name('Policy');
+
+  // // Set the update interval for RL control (in milliseconds).
+  // rlFolder.add(parentContext.params, 'rlUpdateInterval', 10, 1000, 10)
+  //   .name('Update Interval (ms)')
+  //   .onChange((value) => {
+  //     console.log("RL Update Interval:", value);
+  //     // Use this value to control the frequency of RL inference updates.
+  //   });
+  // rlFolder.open();
+
   // Add function that resets the camera to the default position.
   // Can be triggered by pressing ctrl + A.
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.code === 'KeyA') {
       // TODO: Use free camera parameters from MuJoCo
-      parentContext.camera.position.set(2.0, 1.7, 1.7);
-      parentContext.controls.target.set(0, 0.7, 0);
+      parentContext.camera.position.set(0.0, 1.8, 1.5);
+      parentContext.controls.target.set(0, 1.2, 0);
       parentContext.controls.update();
       event.preventDefault();
     }
