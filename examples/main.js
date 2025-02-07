@@ -11,6 +11,7 @@ const mujoco = await load_mujoco();
 
 // Set up Emscripten's Virtual File System
 var initialScene = "myo_sim/hand/myo_hand_combined.xml";
+// var initialScene = "myo_sim/arm/myoarm_bionic_bimanual.mjb";
 mujoco.FS.mkdir('/working');
 mujoco.FS.mount(mujoco.MEMFS, { root: '.' }, '/working');
 // Download the the examples to MuJoCo's virtual file system

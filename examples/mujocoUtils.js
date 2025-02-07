@@ -20,21 +20,21 @@ export function setupGUI(parentContext) {
   parentContext.updateGUICallbacks.length = 0;
   parentContext.updateGUICallbacks.push((model, simulation, params) => {
     // TODO: Use free camera parameters from MuJoCo
-    parentContext.camera.position.set(2.0, 1.7, 1.7);
-    parentContext.controls.target.set(0, 0.7, 0);
+    parentContext.camera.position.set(0.0, 1.8, 1.5);
+    parentContext.controls.target.set(0, 1.2, 0);
     parentContext.controls.update(); });
 
   // Add scene selection dropdown.
   let reload = reloadFunc.bind(parentContext);
   parentContext.gui.add(parentContext.params, 'scene', {
-    "MyoArm": "myo_sim/arm/myoarm_bionic_bimanual.mjb",
     "MyoHand": "myo_sim/hand/myo_hand_combined.xml",
-    "MyoLeg (suspended)":"myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
+    "Bimanual": "myo_sim/arm/myoarm_bionic_bimanual.mjb",
+    // "MyoLeg (suspended)":"myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
     // "Elbow": "myo_sim/elbow/myo_elbow_1dof6muscles.xml",
-    "MyoElbow": "myo_sim/elbow/myo_elbow_combined.xml",
-    "MyoElbow Exo": "myo_sim/elbow/myo_elbow_exo_combined.xml",
-    "motor_finger_v0": "myo_sim/finger/motor_finger_v0.xml",
-    "myo_finger_v0": "myo_sim/finger/myo_finger_v0.xml",
+    // "MyoElbow": "myo_sim/elbow/myo_elbow_combined.xml",
+    // "MyoElbow Exo": "myo_sim/elbow/myo_elbow_exo_combined.xml",
+    // "motor_finger_v0": "myo_sim/finger/motor_finger_v0.xml",
+    // "myo_finger_v0": "myo_sim/finger/myo_finger_v0.xml",
   }).name('Example Scene').onChange(reload);
 
   // Add a help menu.
@@ -757,7 +757,7 @@ export async function downloadExampleScenesFolder(mujoco) {
     // "myo_sim/scene/myosuite_scene_noFloor.png",
     // "myo_sim/scene/myosuite_scene_noFloor_noPedestal.obj",
     // "myo_sim/scene/myosuite_scene_noPedestal.xml",
-    "myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
+    // "myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
   ];
 
   let requests = allFiles.map((url) => fetch("./examples/scenes/" + url));
