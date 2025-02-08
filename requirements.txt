@@ -1,2 +1,6 @@
 cython
 mujoco_py
+tensorflow
+tensorflowjs
+stable_baselines3
+onnx

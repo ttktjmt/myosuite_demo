@@ -2,23 +2,4 @@
 
 A interactive demonstration of the Musculoskeletal Models of the [MyoSuite](https://github.com/facebookresearch/myoSuite) framework.
 
-This work is forked from [Mujoco_wasm](https://github.com/stillonearth/MuJoCo-WASM) and developed with support form  [zalo](https://github.com/zalo/mujoco_wasm) and [Kevin Zakka](https://twitter.com/kevin_zakka)
-
-<!-- # MyoSuite DEMO
-
-MacOs
-1. Install emscripten
-
-```
-brew install emscripten
-```
-
-2. Build the mujoco_wasm Binary
-On Linux, use:
-```bash
-mkdir build
-cd build
-emcmake cmake ..
-make
-```
-On Windows, run `build_windows.bat`. -->
+This work is based on [mujoco_wasm](https://github.com/zalo/mujoco_wasm) and [myosuite](https://github.com/MyoHub/myosuite)
