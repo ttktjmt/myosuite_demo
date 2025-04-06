@@ -1,9 +1,9 @@
-
 import * as THREE           from 'three';
 import { GUI              } from '../node_modules/three/examples/jsm/libs/lil-gui.module.min.js';
 import { OrbitControls    } from '../node_modules/three/examples/jsm/controls/OrbitControls.js';
 import { DragStateManager } from './utils/DragStateManager.js';
 import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, getPosition, getQuaternion, toMujocoPos, standardNormal } from './mujocoUtils.js';
+import { RLController, isRLSupported } from './rlUtils.js';
 import load_mujoco from '../dist/mujoco_wasm.js';
 
 // Load the MuJoCo Module
@@ -11,7 +11,7 @@ const mujoco = await load_mujoco();
 
 // Set up Emscripten's Virtual File System
 var initialScene = "myo_sim/hand/myo_hand_combined.xml";
-// var initialScene = "myo_sim/arm/myoarm_bionic_bimanual.mjb";
+// var initialScene = "myo_sim/arm/myoarm_ bionic_bimanual.mjb";
 mujoco.FS.mkdir('/working');
 mujoco.FS.mount(mujoco.MEMFS, { root: '.' }, '/working');
 // Download the the examples to MuJoCo's virtual file system
@@ -26,9 +26,24 @@ export class MuJoCoDemo {
     this.state      = new mujoco.State(this.model);
     this.simulation = new mujoco.Simulation(this.model, this.state);
 
+    // Initialize RL controller
+    this.rlController = new RLController();
+    
     // Define Random State Variables
-    this.params = { scene: initialScene, paused: false, help: false, ctrlnoiserate: 0.0, ctrlnoisestd: 0.0, keyframeNumber: 0 };
+    this.params = { 
+      scene: initialScene, 
+      paused: false, 
+      help: false, 
+      ctrlnoiserate: 0.0, 
+      ctrlnoisestd: 0.0, 
+      keyframeNumber: 0,
+      rlControl: false,
+      policy: "baseline",
+      rlUpdateInterval: 100
+    };
+    
     this.mujoco_time = 0.0;
+    this.lastRLUpdateTime = 0;
     this.bodies  = {}, this.lights = {};
     this.tmpVec  = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
@@ -63,7 +78,7 @@ export class MuJoCoDemo {
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.target.set(-0.2, 1.4, 0.4);
-    this.controls.panSpeed = 2;
+    this.controls.panSpeed = 1;
     this.controls.zoomSpeed = 1;
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.10;
@@ -81,8 +96,44 @@ export class MuJoCoDemo {
     [this.model, this.state, this.simulation, this.bodies, this.lights] =
       await loadSceneFromURL(mujoco, initialScene, this);
 
+    // Initialize GUI
     this.gui = new GUI();
     setupGUI(this);
+    
+    // Load the RL model if this scene supports it
+    if (isRLSupported(this.params.scene)) {
+      try {
+        // Point directly to the baseline.onnx file in the models directory
+        const modelPath = './examples/models/baseline.onnx';
+        console.log(`Attempting to load RL model from: ${modelPath}`);
+        
+        // Use fetch to check if the model file exists before trying to load it
+        try {
+          const response = await fetch(modelPath, { method: 'HEAD' });
+          if (!response.ok) {
+            console.error(`RL model file not found at ${modelPath}`, response.status);
+            return;
+          }
+        } catch (error) {
+          console.error(`Error checking RL model file: ${modelPath}`, error);
+          return;
+        }
+        
+        // Once we've confirmed the file exists, try to load it
+        const modelLoaded = await this.rlController.loadModel(modelPath);
+        console.log(`RL model ${modelLoaded ? 'successfully loaded' : 'failed to load'}`);
+        
+        // Get and display model diagnostics to help troubleshoot issues
+        if (modelLoaded) {
+          console.log('Running model diagnostics:');
+          const diagnostics = this.rlController.getModelDiagnostics();
+          console.log('Model input shape:', diagnostics.inputShapes);
+          console.log('Model output shape:', diagnostics.outputShapes);
+        }
+      } catch (error) {
+        console.error('Failed to load RL model:', error);
+      }
+    }
   }
 
   onWindowResize() {
@@ -91,12 +142,47 @@ export class MuJoCoDemo {
     this.renderer.setSize( window.innerWidth, window.innerHeight );
   }
 
+  async updateRLControl(timeMS) {
+    // Check if RL control is enabled and enough time has passed since the last update
+    if (!this.params.rlControl || 
+        timeMS - this.lastRLUpdateTime < this.params.rlUpdateInterval || 
+        !this.rlController.isModelLoaded) {
+      return;
+    }
+
+    // Get observation from simulation
+    const observation = this.rlController.getObservation(this.simulation, this.model);
+    
+    // Run inference to get action
+    const action = await this.rlController.runInference(observation);
+    
+    // Apply action to simulation
+    if (action) {
+      this.rlController.applyAction(this.simulation, action);
+      
+      // Update the sliders in the GUI to reflect the new control values
+      for (let i = 0; i < this.simulation.ctrl.length; i++) {
+        const actuatorName = `Actuator ${i}`;
+        if (this.params[actuatorName] !== undefined) {
+          this.params[actuatorName] = this.simulation.ctrl[i];
+        }
+      }
+    }
+    
+    // Update last RL update time
+    this.lastRLUpdateTime = timeMS;
+  }
+
   render(timeMS) {
     this.controls.update();
 
     if (!this.params["paused"]) {
       let timestep = this.model.getOptions().timestep;
       if (timeMS - this.mujoco_time > 35.0) { this.mujoco_time = timeMS; }
+      
+      // Update RL control if enabled
+      this.updateRLControl(timeMS);
+      
       while (this.mujoco_time < timeMS) {
 
         // Jitter the control state with gaussian random noise
@@ -161,38 +247,6 @@ export class MuJoCoDemo {
           pos[addr+0] += offset.x;
           pos[addr+1] += offset.y;
           pos[addr+2] += offset.z;
-
-          //// Save the original root body position
-          //let x  = pos[addr + 0], y  = pos[addr + 1], z  = pos[addr + 2];
-          //let xq = pos[addr + 3], yq = pos[addr + 4], zq = pos[addr + 5], wq = pos[addr + 6];
-
-          //// Clear old perturbations, apply new ones.
-          //for (let i = 0; i < this.simulation.qfrc_applied().length; i++) { this.simulation.qfrc_applied()[i] = 0.0; }
-          //for (let bi = 0; bi < this.model.nbody(); bi++) {
-          //  if (this.bodies[b]) {
-          //    getPosition  (this.simulation.xpos (), bi, this.bodies[bi].position);
-          //    getQuaternion(this.simulation.xquat(), bi, this.bodies[bi].quaternion);
-          //    this.bodies[bi].updateWorldMatrix();
-          //  }
-          //}
-          ////dragStateManager.update(); // Update the world-space force origin
-          //let force = toMujocoPos(this.dragStateManager.currentWorld.clone()
-          //  .sub(this.dragStateManager.worldHit).multiplyScalar(this.model.body_mass()[b] * 0.01));
-          //let point = toMujocoPos(this.dragStateManager.worldHit.clone());
-          //// This force is dumped into xrfc_applied
-          //this.simulation.applyForce(force.x, force.y, force.z, 0, 0, 0, point.x, point.y, point.z, b);
-          //this.simulation.integratePos(this.simulation.qpos(), this.simulation.qfrc_applied(), 1);
-
-          //// Add extra drag to the root body
-          //pos[addr + 0] = x  + (pos[addr + 0] - x ) * 0.1;
-          //pos[addr + 1] = y  + (pos[addr + 1] - y ) * 0.1;
-          //pos[addr + 2] = z  + (pos[addr + 2] - z ) * 0.1;
-          //pos[addr + 3] = xq + (pos[addr + 3] - xq) * 0.1;
-          //pos[addr + 4] = yq + (pos[addr + 4] - yq) * 0.1;
-          //pos[addr + 5] = zq + (pos[addr + 5] - zq) * 0.1;
-          //pos[addr + 6] = wq + (pos[addr + 6] - wq) * 0.1;
-
-
         }
       }
 

@@ -8,6 +8,7 @@ export async function reloadFunc() {
   [this.model, this.state, this.simulation, this.bodies, this.lights] =
     await loadSceneFromURL(this.mujoco, this.params.scene, this);
   this.simulation.forward();
+
   for (let i = 0; i < this.updateGUICallbacks.length; i++) {
     this.updateGUICallbacks[i](this.model, this.simulation, this.params);
   }
@@ -49,8 +50,8 @@ export function setupGUI(parentContext) {
 
   // Add scene selection dropdown.
   let sceneController = sceneFolder.add(parentContext.params, 'scene', {
-    "MyoHand": "myo_sim/hand/myo_hand_combined.xml",
     "Bimanual": "myo_sim/arm/myoarm_bionic_bimanual.mjb",
+    "MyoHand": "myo_sim/hand/myo_hand_combined.xml",
     // "MyoLeg (suspended)":"myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
     // "Elbow": "myo_sim/elbow/myo_elbow_1dof6muscles.xml",
     // "MyoElbow": "myo_sim/elbow/myo_elbow_combined.xml",
@@ -82,17 +83,48 @@ export function setupGUI(parentContext) {
           .name('Enable RL Control')
           .onChange((value) => {
             console.log("RL Control:", value ? "Enabled" : "Disabled");
-            // Insert code here to start/stop RL control.
+            
+            // Load RL model if it's not already loaded
+            if (value && !parentContext.rlController.isModelLoaded) {
+              // Point directly to the baseline.onnx file in the models directory
+              const modelPath = './examples/models/baseline.onnx';
+              
+              // Check if the file exists before trying to load it
+              fetch(modelPath, { method: 'HEAD' })
+                .then(response => {
+                  if (!response.ok) {
+                    console.error(`RL model file not found at ${modelPath}`, response.status);
+                    parentContext.params.rlControl = false;
+                    return Promise.reject('File not found');
+                  }
+                  return parentContext.rlController.loadModel(modelPath);
+                })
+                .then(success => {
+                  if (!success) {
+                    console.error('Failed to load RL model, disabling RL control');
+                    parentContext.params.rlControl = false;
+                  }
+                })
+                .catch(error => {
+                  console.error('Error loading RL model:', error);
+                  parentContext.params.rlControl = false;
+                });
+            }
           });
 
         // Set the initial policy value to the first policy from the configuration.
         parentContext.params.policy = Object.values(config.policies)[0];
+        
         // Add the policy selection dropdown.
         parentContext.rlFolder.add(parentContext.params, 'policy', config.policies)
           .name('Policy')
           .onChange((value) => {
             console.log("Selected Policy:", value);
-            // Insert code here to handle the policy change.
+            
+            // Reload the RL model if the policy changes
+            if (parentContext.params.rlControl) {
+              console.log(`Policy changed to ${value}, would load different model in full implementation`);
+            }
           });
 
         // Add a slider for the RL update interval (in milliseconds).
@@ -100,8 +132,9 @@ export function setupGUI(parentContext) {
           .name('Update Interval (ms)')
           .onChange((value) => {
             console.log("RL Update Interval:", value);
-            // Insert code here to update RL inference frequency.
+            // The interval is stored in params and used directly in updateRLControl
           });
+          
         parentContext.rlFolder.open();
       } else {
         // If the RL Control folder already exists, update the policy dropdown options.
@@ -112,6 +145,11 @@ export function setupGUI(parentContext) {
             .name('Policy')
             .onChange((value) => {
               console.log("Selected Policy:", value);
+              
+              // Reload the RL model if the policy changes
+              if (parentContext.params.rlControl) {
+                console.log(`Policy changed to ${value}, would load different model in full implementation`);
+              }
             });
         }
       }
@@ -128,6 +166,9 @@ export function setupGUI(parentContext) {
           delete sceneFolder.__folders["RL Control"];
         }
         parentContext.rlFolder = null;
+        
+        // Disable RL control for unsupported scenes
+        parentContext.params.rlControl = false;
       }
     }
   }
@@ -142,7 +183,7 @@ export function setupGUI(parentContext) {
   //  the help menu is removed.
   //  Can also be triggered by pressing F1.
   // Has a dark transparent background.
-  // Has two columns: one for putting the action description, and one for the action key trigger.keyframeNumber
+  // Has two columns: one for putting the action description, and one for the action key trigger.
   let keyInnerHTML = '';
   let actionInnerHTML = '';
   const displayHelpMenu = () => {
@@ -344,38 +385,6 @@ export function setupGUI(parentContext) {
     actuatorGUIs = addActuators(model, simulation, parentContext.params);
   });
   actuatorFolder.close();
-
-  // Add RL Control Options
-  // // initial RL control parameters
-  // parentContext.params.rlControl = false;            // Whether RL control is enabled
-  // parentContext.params.policy = "baseline";           // Selected RL policy (e.g., "policy_a", "policy_b", etc.)
-  // parentContext.params.rlUpdateInterval = 100;         // Update interval in milliseconds
-
-  // let rlFolder = parentContext.gui.addFolder("RL Control");
-
-  // // Toggle RL control on/off.
-  // rlFolder.add(parentContext.params, 'rlControl').name('Enable RL Control')
-  //   .onChange((value) => {
-  //     console.log("RL Control:", value ? "Enabled" : "Disabled");
-  //     // Add code here
-  //   });
-
-  // // Add policy selection dropdown.
-  // rlFolder.add(parentContext.params, 'policy', {
-  //   "baseline": "policy_a",
-  //   "Muscle Heads": "policy_b",
-  //   "LNSworkers": "policy_c",
-  //   "neuroflex": "policy_d"
-  // }).name('Policy');
-
-  // // Set the update interval for RL control (in milliseconds).
-  // rlFolder.add(parentContext.params, 'rlUpdateInterval', 10, 1000, 10)
-  //   .name('Update Interval (ms)')
-  //   .onChange((value) => {
-  //     console.log("RL Update Interval:", value);
-  //     // Use this value to control the frequency of RL inference updates.
-  //   });
-  // rlFolder.open();
 
   // Add function that resets the camera to the default position.
   // Can be triggered by pressing ctrl + A.
