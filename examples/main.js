@@ -6,30 +6,20 @@ import { setupGUI, downloadExampleScenesFolder, loadSceneFromURL, getPosition, g
 import { RLController, isRLSupported } from './rlUtils.js';
 import load_mujoco from '../dist/mujoco_wasm.js';
 
-// Load the MuJoCo Module
 const mujoco = await load_mujoco();
 
 // Set up Emscripten's Virtual File System
 var initialScene = "myo_sim/hand/myo_hand_combined.xml";
-// var initialScene = "myo_sim/arm/myoarm_ bionic_bimanual.mjb";
+// var initialScene = "myo_sim/arm/myoarm_bionic_bimanual.mjb";
 mujoco.FS.mkdir('/working');
 mujoco.FS.mount(mujoco.MEMFS, { root: '.' }, '/working');
-// Download the the examples to MuJoCo's virtual file system
 await downloadExampleScenesFolder(mujoco);
 
 export class MuJoCoDemo {
   constructor() {
     this.mujoco = mujoco;
-
-    // Load in the state from XML
-    this.model      = new mujoco.Model("/working/" + initialScene);
-    this.state      = new mujoco.State(this.model);
-    this.simulation = new mujoco.Simulation(this.model, this.state);
-
-    // Initialize RL controller
     this.rlController = new RLController();
     
-    // Define Random State Variables
     this.params = { 
       scene: initialScene, 
       paused: false, 
@@ -44,13 +34,17 @@ export class MuJoCoDemo {
     
     this.mujoco_time = 0.0;
     this.lastRLUpdateTime = 0;
-    this.bodies  = {}, this.lights = {};
-    this.tmpVec  = new THREE.Vector3();
+    this.bodies = {};
+    this.lights = {};
+    this.tmpVec = new THREE.Vector3();
     this.tmpQuat = new THREE.Quaternion();
     this.updateGUICallbacks = [];
+    this.model = null;
+    this.state = null;
+    this.simulation = null;
 
-    this.container = document.createElement( 'div' );
-    document.body.appendChild( this.container );
+    this.container = document.createElement('div');
+    document.body.appendChild(this.container);
 
     this.scene = new THREE.Scene();
     this.scene.name = 'scene';
@@ -96,15 +90,14 @@ export class MuJoCoDemo {
     [this.model, this.state, this.simulation, this.bodies, this.lights] =
       await loadSceneFromURL(mujoco, initialScene, this);
 
-    // Initialize GUI
     this.gui = new GUI();
     setupGUI(this);
     
-    // Load the RL model if this scene supports it
+    // Load the RL model if the initial scene supports it
     if (isRLSupported(this.params.scene)) {
       try {
         // Point directly to the baseline.onnx file in the models directory
-        const modelPath = './examples/models/baseline.onnx';
+        const modelPath = `./examples/models/${this.params.policy}.onnx`;
         console.log(`Attempting to load RL model from: ${modelPath}`);
         
         // Use fetch to check if the model file exists before trying to load it
@@ -150,27 +143,42 @@ export class MuJoCoDemo {
       return;
     }
 
-    // Get observation from simulation
-    const observation = this.rlController.getObservation(this.simulation, this.model);
-    
-    // Run inference to get action
-    const action = await this.rlController.runInference(observation);
-    
-    // Apply action to simulation
-    if (action) {
-      this.rlController.applyAction(this.simulation, action);
+    try {
+      const observation = this.rlController.getObservation(this.simulation, this.model);
+      const action = await this.rlController.runInference(observation);
       
-      // Update the sliders in the GUI to reflect the new control values
-      for (let i = 0; i < this.simulation.ctrl.length; i++) {
-        const actuatorName = `Actuator ${i}`;
-        if (this.params[actuatorName] !== undefined) {
-          this.params[actuatorName] = this.simulation.ctrl[i];
+      if (action) {
+        this.rlController.applyAction(this.simulation, action);
+        
+        // Update the sliders in the GUI to reflect the new control values
+        for (let i = 0; i < this.simulation.ctrl.length; i++) {
+          // Get the actual actuator name from the model
+          const textDecoder = new TextDecoder("utf-8");
+          const nullChar = textDecoder.decode(new ArrayBuffer(1));
+          const actuatorName = textDecoder.decode(
+            this.model.names.subarray(this.model.name_actuatoradr[i])
+          ).split(nullChar)[0];
+          
+          if (this.params[actuatorName] !== undefined) {
+            // Ensure the value is within the valid range
+            const ctrlValue = this.simulation.ctrl[i];
+            const actRange = this.model.actuator_ctrlrange;
+            if (actRange && i*2+1 < actRange.length) {
+              const minValue = actRange[i*2];
+              const maxValue = actRange[i*2+1];
+              // Clamp the value to the actuator's range
+              const clampedValue = Math.max(minValue, Math.min(maxValue, ctrlValue));
+              this.params[actuatorName] = clampedValue;
+            } else {
+              this.params[actuatorName] = ctrlValue;
+            }
+          }
         }
       }
+      this.lastRLUpdateTime = timeMS;
+    } catch (error) {
+      console.error('[RL Control] Error:', error);
     }
-    
-    // Update last RL update time
-    this.lastRLUpdateTime = timeMS;
   }
 
   render(timeMS) {

@@ -3,7 +3,6 @@ import { Reflector  } from './utils/Reflector.js';
 import { MuJoCoDemo } from './main.js';
 
 export async function reloadFunc() {
-  // Delete the old scene and load the new scene
   this.scene.remove(this.scene.getObjectByName("MuJoCo Root"));
   [this.model, this.state, this.simulation, this.bodies, this.lights] =
     await loadSceneFromURL(this.mujoco, this.params.scene, this);
@@ -14,10 +13,8 @@ export async function reloadFunc() {
   }
 }
 
-/** @param {MuJoCoDemo} parentContext*/
+/** @param {MuJoCoDemo} parentContext */
 export function setupGUI(parentContext) {
-
-  // Make sure we reset the camera when the scene is changed or reloaded.
   parentContext.updateGUICallbacks.length = 0;
   parentContext.updateGUICallbacks.push((model, simulation, params) => {
     // TODO: Use free camera parameters from MuJoCo
@@ -26,8 +23,8 @@ export function setupGUI(parentContext) {
     parentContext.controls.update(); });
 
   // Initialize RL parameters.
-  parentContext.params.rlControl = false;       // RL control disabled by default.
-  parentContext.params.policy = "baseline";       // Default RL policy.
+  parentContext.params.rlControl = false;
+  parentContext.params.policy = "baseline";
   parentContext.params.rlUpdateInterval = 100;    // Default update interval (ms).
 
   // Define RL configuration for each scene.
@@ -38,7 +35,7 @@ export function setupGUI(parentContext) {
     "myo_sim/arm/myoarm_bionic_bimanual.mjb": {
       rlSupported: true,
       policies: {
-        "baseline": "policy_a",
+        "baseline": "baseline",
         "Muscle Heads": "policy_b",
         "LNSworkers": "policy_c",
         "neuroflex": "policy_d"
@@ -52,21 +49,15 @@ export function setupGUI(parentContext) {
   let sceneController = sceneFolder.add(parentContext.params, 'scene', {
     "Bimanual": "myo_sim/arm/myoarm_bionic_bimanual.mjb",
     "MyoHand": "myo_sim/hand/myo_hand_combined.xml",
-    // "MyoLeg (suspended)":"myo_sim/myolegs/myolegs_v0.5(mj231).mjb",
-    // "Elbow": "myo_sim/elbow/myo_elbow_1dof6muscles.xml",
-    // "MyoElbow": "myo_sim/elbow/myo_elbow_combined.xml",
-    // "MyoElbow Exo": "myo_sim/elbow/myo_elbow_exo_combined.xml",
-    // "motor_finger_v0": "myo_sim/finger/motor_finger_v0.xml",
-    // "myo_finger_v0": "myo_sim/finger/myo_finger_v0.xml",
-  }).name('Example Scene').onChange((value) => {
-    // Reload the simulation for the new scene.
-    let reload = reloadFunc.bind(parentContext);
-    reload();
-    // Update RL Control options based on the selected scene.
-    updateRLControlOptions(value);
-    // Force update of the dropdown display.
-    sceneController.updateDisplay();
-  });
+  })
+    .name('Example Scene')
+    .onChange((scene) => {
+      // Reload the simulation for the new scene.
+      let reload = reloadFunc.bind(parentContext);
+      reload();
+      updateRLControlOptions(scene);
+      sceneController.updateDisplay();
+    });
 
   parentContext.rlFolder = null;
 
@@ -406,24 +397,33 @@ export function setupGUI(parentContext) {
 
 /** Loads a scene for MuJoCo
  * @param {mujoco} mujoco This is a reference to the mujoco namespace object
- * @param {string} filename This is the name of the .xml file in the /working/ directory of the MuJoCo/Emscripten Virtual File System
+ * @param {string} filename This is the name of the .xml or .mjb file in the /working/ directory of the MuJoCo/Emscripten Virtual File System
  * @param {MuJoCoDemo} parent The three.js Scene Object to add the MuJoCo model elements to
  */
 export async function loadSceneFromURL(mujoco, filename, parent) {
-    // Free the old simulation.
+    // Free memory
     if (parent.simulation != null) {
-      console.log("\n\nFreeMemory\n\n");
       parent.simulation.free();
-      parent.model      = null;
-      parent.state      = null;
       parent.simulation = null;
     }
+    if (parent.model != null) {
+      parent.model.free();
+      parent.model = null;
+    }
+    if (parent.state != null) {
+      parent.state.free();
+      parent.state = null;
+    }
 
-
-    // Load in the state from XML.
-    parent.model       = mujoco.Model.load_from_xml("/working/"+filename);
-    parent.state       = new mujoco.State(parent.model);
-    parent.simulation  = new mujoco.Simulation(parent.model, parent.state);
+    // Load in the state from XML or MJB
+    const filepath = "/working/" + filename;
+    if (filename.endsWith('.mjb')) {
+      parent.model = mujoco.Model.load_from_mjb(filepath);
+    } else {
+      parent.model = mujoco.Model.load_from_xml(filepath);
+    }
+    parent.state = new mujoco.State(parent.model);
+    parent.simulation = new mujoco.Simulation(parent.model, parent.state);
 
     let model = parent.model;
     let state = parent.state;
@@ -668,7 +668,6 @@ export async function loadSceneFromURL(mujoco, filename, parent) {
     }
 
     parent.mujocoRoot = mujocoRoot;
-
     return [model, state, simulation, bodies, lights]
 }
 

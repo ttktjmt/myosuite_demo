@@ -36,8 +36,6 @@ class Reflector extends Mesh {
 		const multisample = ( options.multisample !== undefined ) ? options.multisample : 4;
         const blendTexture = options.texture || undefined;
 
-		//
-
 		const reflectorPlane = new Plane();
 		const normal = new Vector3();
 		const reflectorWorldPosition = new Vector3();

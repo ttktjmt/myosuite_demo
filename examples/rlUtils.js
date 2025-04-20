@@ -83,10 +83,7 @@ export class RLController {
       // Try different paths if the primary path fails
       const pathsToTry = [
         modelPath,
-        './examples/models/baseline.onnx',  // Try direct path
-        './models/baseline.onnx',          // Try alternative path
-        '/examples/models/baseline.onnx',  // Try absolute path
-        '/models/baseline.onnx'            // Try another absolute path
+        './examples/models/baseline.onnx',  // default model
       ];
       
       let modelBuffer = null;
@@ -486,8 +483,6 @@ export class RLController {
       // Apply action values to the control array
       const ctrl = simulation.ctrl;
       const actionLength = Math.min(action.length, ctrl.length);
-      
-      console.log(`Applying ${actionLength} action values to control`);
       
       // Process and apply each action value
       for (let i = 0; i < actionLength; i++) {
